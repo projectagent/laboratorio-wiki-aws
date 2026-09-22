@@ -9,13 +9,13 @@
 ## 👤 Identificação
 
 **Nome:**  
-Preencha aqui
+Arthur Carlos Oliveira Rossini
 
 **Data:**  
-Preencha aqui
+22/09/2026
 
 **Link do repositório:**  
-Preencha aqui
+[Repositório](https://github.com/projectagent/laboratorio-wiki-aws)
 
 ---
 
@@ -24,20 +24,17 @@ Preencha aqui
 ## 1.1 Formatos encontrados na pasta `raw/`
 
 Descreva quais tipos de arquivos existem dentro da pasta `raw/`.
-
-```md
-Exemplo de como responder, com o formato e o que ele implica:
-- <extensao>: <nasce digital ou precisa de OCR?>, <o que da para extrair>
-```
-
 > Abra a pasta e liste o que voce encontrou de fato. Esta quest avalia a sua
 > leitura do acervo, entao a resposta certa e a que corresponde aos arquivos.
 
 **Sua resposta:**
+Foram identificados três tipos distintos de arquivos, exigindo abordagens de extração diferentes:
 
-```md
-Preencha aqui.
-```
+ata_reuniao_vendas_sa.pdf: PDF digital nativo (5 páginas) com camada de texto (não requer OCR).
+
+ata_resultados_vendas_novos_dados.png/.jpg: Imagem digitalizada (1 página). Composto por pixels, requer OCR.
+
+vendas_sa_dados_ficticios_laboratorio.csv: Arquivo estruturado tabular (240 linhas). Não possui texto corrido.
 
 ---
 
@@ -45,20 +42,12 @@ Preencha aqui.
 
 Explique quais dificuldades esses documentos podem apresentar.
 
-```md
-Exemplo:
-- Arquivos sem padrão de nomenclatura
-- Documentos escaneados com baixa qualidade
-- Textos manuscritos ou parcialmente ilegíveis
-- Atas com estruturas diferentes
-- Informações importantes espalhadas em vários formatos
-```
-
 **Sua resposta:**
+Na imagem: Requer reconhecimento ótico de caracteres (OCR) avançado capaz de lidar com caligrafia (anotações soltas, datas circuladas) e contornar artefatos visuais como carimbos sobrepostos.
 
-```md
-Preencha aqui.
-```
+No PDF digital: O desafio é preservar a coerência espacial (layout) para não misturar colunas de tabelas (ex: responsabilidades e prazos) ao realizar a leitura do texto linha por linha.
+
+No CSV: O processamento como texto corrido destruiria o contexto dos dados. É necessário transformar as linhas em dicionários/documentos estruturados antes da indexação para evitar excesso de tokens e ruído na busca.
 
 ---
 
@@ -67,10 +56,21 @@ Preencha aqui.
 Liste quais informações precisam ser identificadas para transformar os documentos em conhecimento pesquisável.
 
 **Sua resposta:**
+Para garantir uma base pesquisável útil, é fundamental extrair:
 
-```md
-Preencha aqui.
-```
+Datas e horários (reuniões, prazos).
+
+Participantes (nomes, departamentos, cargos).
+
+Temas discutidos e pauta.
+
+Indicadores financeiros e de negócio mencionados.
+
+Decisões tomadas (status e descrição).
+
+Responsáveis diretos e prazos atrelados às ações.
+
+Riscos mapeados e pendências identificadas.
 
 ---
 
@@ -79,11 +79,7 @@ Preencha aqui.
 Como você classificaria os documentos sem depender de subpastas dentro de `raw/`?
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
-
+Sem depender de subpastas, a classificação será flat, baseada na inferência de metadados. Um LLM inicial fará a triagem do cabeçalho/conteúdo do arquivo para classificar o tipo de documento (ex: Ata de Reunião, Planilha Financeira). Em seguida, essas categorias serão aplicadas diretamente aos arquivos no Amazon S3 utilizando S3 Object Tags (ex: Type=Meeting_Minutes), permitindo filtragem nativa no próprio bucket.
 ---
 
 # ✅ Quest 2: O Portal de Entrada na AWS
@@ -101,10 +97,7 @@ Serviços que você pode considerar:
 - Amazon S3 Lifecycle
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Os arquivos são depositados em um bucket inicial do Amazon S3 (wiki-corp-raw-data). O upload dispara um evento de processamento. O acesso ao bucket é restrito por políticas estritas do AWS IAM (mínimo privilégio), e todos os dados em repouso são encriptados utilizando o AWS KMS para garantir a segurança de informações corporativas e financeiras sensíveis.
 
 ---
 
@@ -113,11 +106,7 @@ Preencha aqui.
 Explique como garantir que os arquivos originais sejam mantidos intactos e rastreáveis.
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
-
+Para garantir que a pasta raw/ seja a fonte da verdade imutável, o bucket no Amazon S3 terá o S3 Versioning habilitado e regras de S3 Object Lock (modo WORM - Write Once Read Many). Nenhuma ferramenta ou script terá permissão para alterar ou deletar os arquivos nesta etapa. Todos os outputs de processamento serão salvos em um bucket separado.
 ---
 
 ## 2.3 Extração de texto dos documentos
@@ -142,10 +131,14 @@ Serviços que você pode considerar:
 - Amazon CloudWatch
 
 **Sua resposta:**
+A extração é orquestrada pelo AWS Step Functions, que utiliza uma função AWS Lambda para identificar a extensão e a camada de texto, roteando o arquivo:
 
-```md
-Preencha aqui.
-```
+Imagens (e PDFs escaneados): Direcionados à API do Amazon Textract (AnalyzeDocument), que extrai texto, caligrafia solta e estrutura de formulários/tabelas.
+
+PDFs digitais / .docx / .md / .txt: Processados por uma AWS Lambda com bibliotecas nativas de parsing (ex: pdfplumber), extraindo texto e estruturas com alta fidelidade sem o custo de chamadas OCR.
+
+CSVs: Uma AWS Lambda (usando Pandas) transforma cada linha em um micro-documento JSON em formato chave-valor.
+Ao fim, todo o texto é salvo no bucket wiki-corp-processed-data.
 
 ---
 
@@ -154,10 +147,7 @@ Preencha aqui.
 Explique como sua solução identificaria e registraria erros de processamento.
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+O AWS Step Functions implementa blocos nativos de Catch e Retry. Se o Textract falhar ou um Lambda sofrer timeout, o estado falho é interceptado. O erro é detalhado e logado no Amazon CloudWatch Logs. Filtros de métrica no CloudWatch monitoram termos como Exception e disparam alarmes para um tópico do Amazon SNS, notificando imediatamente a equipe de engenharia via e-mail sobre o arquivo não processado.
 
 ---
 
@@ -168,10 +158,7 @@ Preencha aqui.
 Explique como os textos extraídos seriam limpos, normalizados e preparados para consulta.
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Os textos que chegam no bucket processed-data passam por um script Python em uma AWS Lambda que utiliza Expressões Regulares (Regex). Essa etapa remove cabeçalhos/rodapés repetitivos, limpa múltiplos espaços em branco, consolida quebras de linha defeituosas e transforma tudo em um formato JSON limpo, otimizando o consumo de tokens na IA e aumentando a precisão da busca.
 
 ---
 
@@ -181,16 +168,16 @@ Defina quais metadados você extrairia de cada documento.
 
 | Metadado | Por que ele é importante? |
 |---|---|
-| Nome do documento | Preencha aqui |
-| Tipo do documento | Preencha aqui |
-| Data identificada | Preencha aqui |
-| Tema principal | Preencha aqui |
-| Participantes | Preencha aqui |
-| Decisões tomadas | Preencha aqui |
-| Responsáveis | Preencha aqui |
-| Próximos passos | Preencha aqui |
-| Nível de confidencialidade | Preencha aqui |
-| Caminho do arquivo original | Preencha aqui |
+| Nome do documento | Identificação básica e auditoria. |
+| Tipo do documento | Permite filtrar buscas (ex: pesquisar apenas em Atas). |
+| Data identificada | Crucial para ordenação cronológica e compreensão de contexto temporal. |
+| Tema principal | Facilita a sumarização e a busca por agrupamento de assuntos. |
+| Participantes | Permite mapear a presença e autoria de decisões a colaboradores específicos. |
+| Decisões tomadas | Transforma texto passivo em conhecimento acionável corporativo. |
+| Responsáveis | Permite buscas do tipo "Quais são as tarefas da Maria?". |
+| Próximos passos | Rastreabilidade do andamento de projetos entre diferentes reuniões. |
+| Nível de confidencialidade | Base para a futura implementação de regras de acesso (RBAC) |
+| Caminho do arquivo original | Essencial para citar a fonte da verdade na resposta gerada pela IA. |
 
 Adicione outros metadados, se necessário.
 
@@ -201,10 +188,7 @@ Adicione outros metadados, se necessário.
 Explique como o Amazon Bedrock poderia ajudar a identificar temas, decisões, responsáveis, pendências e resumos dos documentos.
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Uma vez que o texto está limpo, ele é enviado ao Amazon Bedrock (utilizando modelos rápidos como o Claude 3 Haiku). A IA não recebe um prompt aberto, mas sim um System Prompt de extração restrita em formato JSON. Ela analisa o documento e infere quem são os responsáveis, resume os tópicos discutidos e isola blocos de ação, devolvendo um pacote de metadados estruturado.
 
 ---
 
@@ -220,10 +204,7 @@ Serviços que você pode considerar:
 - Amazon Bedrock Knowledge Bases
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Cada documento processado ganha um UUID exclusivo. Os metadados extraídos pela IA são gravados em uma tabela NoSQL no Amazon DynamoDB, usando o UUID como Chave Primária (Partition Key). Nesta mesma tabela, gravamos o campo Original_S3_URI apontando para o PDF/Imagem original no bucket raw. Isso conecta permanentemente o dado processado e seus metadados ao arquivo raiz, podendo ser catalogado via AWS Glue Data Catalog.
 
 ---
 
@@ -234,10 +215,7 @@ Preencha aqui.
 Explique como os documentos seriam divididos em trechos menores e preparados para busca semântica.
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Os textos limpos não podem ser injetados integralmente na IA durante a busca. O Amazon Bedrock Knowledge Bases assume a função de aplicar Chunking: divide automaticamente o texto longo em pedaços (ex: 300 tokens) com um pequeno sombreamento (overlap de ~20%) entre os fragmentos. Isso garante que frases no final de um parágrafo não percam o contexto que inicia no parágrafo seguinte.
 
 ---
 
@@ -254,10 +232,7 @@ Serviços que você pode considerar:
 - Modelos de embeddings no Amazon Bedrock
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Os chunks de texto são submetidos a um modelo de IA (ex: Amazon Titan Text Embeddings hospedado no Amazon Bedrock), que transforma o significado semântico do texto em vetores numéricos de alta dimensão. Esses vetores são armazenados no Amazon OpenSearch Serverless (utilizando uma Vector Search Collection), que atua como o mecanismo de pesquisa ultrarrápido para cálculo de similaridade matemática entre a pergunta e os documentos.
 
 ---
 
@@ -273,10 +248,15 @@ Considere explicar:
 - Como a resposta indicaria as fontes utilizadas.
 
 **Sua resposta:**
+O fluxo opera sob a arquitetura RAG (Retrieval-Augmented Generation):
 
-```md
-Preencha aqui.
-```
+  1. O usuário faz a pergunta e o Bedrock a transforma em um vetor.
+
+  2. O OpenSearch Serverless compara este vetor com a base e retorna os chunks mais relevantes.
+
+  3. O Amazon Bedrock injeta a pergunta original e os chunks recuperados em um LLM avançado (ex: Claude 3.5 Sonnet) com instruções rígidas para gerar a resposta apenas usando o contexto fornecido.
+
+  4. A API retorna a resposta e os blocos de Citação. O sistema cruza o ID do chunk utilizado com a tabela do DynamoDB e anexa o link (Original_S3_URI) do documento fonte, provando a origem do dado.
 
 ---
 
@@ -293,10 +273,7 @@ Serviços que você pode considerar:
 - Amazon Cognito
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+Os usuários acessarão o oráculo através de uma aplicação Web segura hospedada no Amazon S3 via CloudFront. O backend das pesquisas será exposto por uma API REST via Amazon API Gateway, que aciona as AWS Lambdas de comunicação com o Bedrock. O acesso de funcionários será autenticado pelo Amazon Cognito, garantindo que apenas usuários logados (via SSO corporativo) possam fazer consultas na Wiki.
 
 ---
 
@@ -315,10 +292,11 @@ Serviços que você pode considerar:
 - AWS Cost Explorer
 
 **Sua resposta:**
+Controle de Acesso e Proteção: O AWS IAM impõe o princípio do menor privilégio aos serviços (ex: Lambda só pode ler do OpenSearch). O AWS KMS criptografa toda a arquitetura de banco de dados e S3.
 
-```md
-Preencha aqui.
-```
+Auditoria: O AWS CloudTrail registra o log de todas as chamadas de API, garantindo auditoria de quem acessou e pesquisou informações.
+
+Monitoramento e Custo: O Amazon CloudWatch monitora latência de APIs e métricas de erro. O AWS Cost Explorer e alertas do AWS Budgets previnem saltos de custos relacionados ao faturamento de tokens no Amazon Bedrock.
 
 ---
 
@@ -331,10 +309,7 @@ Agora reúna tudo em uma visão única.
 Explique em poucas linhas a ideia central da sua arquitetura.
 
 **Sua resposta:**
-
-```md
-Preencha aqui.
-```
+A arquitetura propõe um fluxo 100% serverless de ponta a ponta na AWS para transformar ativos corporativos desestruturados em conhecimento consultável. Utiliza orquestração de microsserviços para lidar com a ingestão heterogênea (OCR, Parse Nativo, CSV), estrutura metadados via IA gerativa, e constrói uma base vetorial robusta que entrega respostas auditáveis, com alta segurança e rastreabilidade da fonte original.
 
 ---
 
@@ -342,15 +317,17 @@ Preencha aqui.
 
 | Serviço AWS | Papel na solução |
 |---|---|
-| Amazon S3 | Preencha aqui |
-| Amazon Textract | Preencha aqui |
-| Amazon Bedrock | Preencha aqui |
-| Amazon Bedrock Knowledge Bases | Preencha aqui |
-| AWS Lambda | Preencha aqui |
-| AWS Step Functions | Preencha aqui |
-| Amazon CloudWatch | Preencha aqui |
-| AWS IAM | Preencha aqui |
-| AWS KMS | Preencha aqui |
+| Amazon S3 | Data Lake primário e armazenamento imutável de artefatos brutos e processados. |
+| Amazon Textract | Motor de OCR para extrair texto, estrutura tabular e manuscritos de imagens escaneadas. |
+| Amazon Bedrock | Extração semântica de metadados e geração RAG(LLMs base e Titan Embeddings). |
+| Amazon Bedrock Knowledge Bases | Orquestração nativa do chunking e indexação para a criação da base de conhecimento. |
+| AWS Lambda | Execução sob demanda para roteamento, limpeza de texto via regex e APIs de backend. |
+| AWS Step Functions | Orquestração visual, controle de estado e tratamento de falhas do pipeline de ingestão. |
+| Amazon CloudWatch | Observabilidade global: logs de aplicação, métricas operacionais e disparo de alarmes. |
+| AWS IAM | Controle rigoroso de acesso e garantia de privilégio mínimo entre componentes e serviços. |
+| AWS KMS | Criptografia em repouso ponta-a-ponta garantindo a segurança de dados corporativos. |
+| Amazon OpenSearch Serverless | Banco de dados vetorial de alta performance para a busca semântica de chunks. |
+| Amazon DynamoDB | Catálogo secundário de alta velocidade para indexação de metadados e URIs originais. |
 
 Adicione, remova ou ajuste os serviços conforme sua proposta.
 
@@ -360,25 +337,28 @@ Adicione, remova ou ajuste os serviços conforme sua proposta.
 
 Descreva o caminho dos dados desde a pasta `raw/` até a Wiki Inteligente.
 
-```md
-Exemplo de estrutura:
-
-1. Arquivos estão inicialmente na pasta raw/
-2. Arquivos são enviados para o Amazon S3
-3. Documentos escaneados passam pelo Amazon Textract
-4. Arquivos digitais têm seus textos extraídos
-5. Textos são limpos e padronizados
-6. Metadados são extraídos
-7. Conteúdos são indexados em uma base pesquisável
-8. Usuário pesquisa na Wiki
-9. IA responde com base nos documentos originais
-```
-
 **Sua resposta:**
 
-```md
-Preencha aqui.
-```
+  1. Arquivos são enviados para o bucket imutável raw/ no Amazon S3.
+
+  2. Evento de upload aciona o AWS Step Functions para orquestrar o fluxo.
+
+  3. Arquivos são analisados: Imagens vão para Textract; PDFs/Textos para extração em Lambda; CSVs são convertidos linha-a-linha em JSON.
+
+  4. Textos são limpos (remoção de ruídos visuais e de caracteres especiais).
+
+  5. Amazon Bedrock processa o texto e extrai metadados estruturados (responsáveis, datas, decisões).
+
+  6. Metadados e links de origem (Original_S3_URI) são gravados no Amazon DynamoDB.
+
+  7. Textos processados são divididos em chunks e vetorizados via Bedrock Knowledge Bases.
+
+  8. Vetores são indexados no Amazon OpenSearch Serverless.
+
+  9. Usuário autenticado faz uma pergunta através de portal Web.
+
+  10. RAG orquestra busca vetorial e IA responde em linguagem natural anexando o link seguro da fonte original.
+
 
 ---
 
@@ -386,17 +366,22 @@ Preencha aqui.
 
 Crie um diagrama simples usando texto.
 
-```md
-Exemplo:
-
-raw/ → Amazon S3 → Lambda/Step Functions → Textract → S3 Processado → Bedrock Knowledge Bases → Interface de Consulta → Usuário Final
-```
-
 **Sua resposta:**
 
-```md
-Preencha aqui.
-```
+Upload(S3 Raw WORM) 
+  ↳ EventBridge Trigger
+    ↳ Step Functions (Orquestrador)
+      ├── Choice: Imagem ➔ Textract ➔ Texto Limpo
+      ├── Choice: PDF ➔ Lambda Parser ➔ Texto Limpo
+      └── Choice: CSV ➔ Lambda Data Prep ➔ Texto Limpo
+            ↳ S3 Processed Data + Metadados extraídos para DynamoDB
+               ↳ Bedrock Knowledge Bases (Chunking & Embeddings)
+                  ↳ OpenSearch Serverless (Base Vetorial)
+                      ⇡ 
+                      (RAG / Semantic Search)
+                      ⇡
+Usuário ➔ UI ➔ API Gateway ➔ Lambda Backend ➔ Bedrock (Claude 3.5)
+(Autenticação via Amazon Cognito / Auditoria via AWS CloudTrail)
 
 ---
 
@@ -404,20 +389,12 @@ Preencha aqui.
 
 Liste possíveis desafios da sua solução.
 
-```md
-Exemplo:
-- Documentos ilegíveis podem prejudicar a extração de texto.
-- OCR pode gerar erros em documentos com baixa qualidade.
-- Custos podem aumentar conforme o volume de documentos.
-- Metadados inferidos por IA podem precisar de validação humana.
-- Respostas geradas por IA devem sempre referenciar documentos de origem.
-```
-
 **Sua resposta:**
 
-```md
-Preencha aqui.
-```
+- Textract tem limitações perante imagens fisicamente danificadas ou com péssima resolução.
+- Escalonamento imprevisível de custos de inferência LLM em caso de picos maciços de buscas.
+- Os modelos de linguagem base podem ainda ser suscetíveis a leves alucinações caso os documentos de fonte contenham jargões corporativos ambíguos.
+- Sem um mecanismo robusto de RBAC (Controle de Acesso Baseado em Função), as pesquisas em documentos abertos podem violar sigilo departamental na resposta generativa.
 
 ---
 
@@ -425,21 +402,12 @@ Preencha aqui.
 
 Descreva como a solução poderia evoluir.
 
-```md
-Exemplo:
-- Criar uma interface web para consulta.
-- Criar um chat interno para perguntas sobre atas.
-- Adicionar controle de acesso por departamento.
-- Criar dashboard de decisões e pendências.
-- Gerar alertas automáticos sobre ações em aberto.
-- Integrar com ferramentas corporativas.
-```
-
 **Sua resposta:**
 
-```md
-Preencha aqui.
-```
+- Adicionar segurança por hierarquia (RBAC) interligada aos metadados, impedindo que departamentos não autorizados pesquisem atas de outros setores.
+- Implementar ChatOps via Amazon Lex para interagir com a Wiki diretamente do Microsoft Teams ou Slack.
+- Criação de rotinas em lote no Step Functions para enviar relatórios semanais de "Ações Pendentes" para os e-mails dos responsáveis baseados nos metadados.
+- Integração com Amazon QuickSight lendo o DynamoDB para gerar painéis analíticos gerenciais sobre volume de decisões e resoluções.
 
 ---
 
@@ -447,16 +415,16 @@ Preencha aqui.
 
 Antes de entregar, confirme se sua solução responde:
 
-- [ ] Como transformar documentos escaneados em texto?
-- [ ] Como lidar com diferentes formatos dentro da mesma pasta `raw/`?
-- [ ] Como armazenar os documentos originais?
-- [ ] Como preservar a rastreabilidade entre resposta e documento fonte?
-- [ ] Como organizar metadados?
-- [ ] Como criar busca semântica?
-- [ ] Como usar Amazon Bedrock na solução?
-- [ ] Como proteger documentos sensíveis?
-- [ ] Como monitorar falhas?
-- [ ] Como a empresa usaria essa Wiki no dia a dia?
+- [x] Como transformar documentos escaneados em texto?
+- [x] Como lidar com diferentes formatos dentro da mesma pasta `raw/`?
+- [x] Como armazenar os documentos originais?
+- [x] Como preservar a rastreabilidade entre resposta e documento fonte?
+- [x] Como organizar metadados?
+- [x] Como criar busca semântica?
+- [x] Como usar Amazon Bedrock na solução?
+- [x] Como proteger documentos sensíveis?
+- [x] Como monitorar falhas?
+- [x] Como a empresa usaria essa Wiki no dia a dia?
 
 ---
 
@@ -466,6 +434,4 @@ Escreva uma breve conclusão defendendo sua solução como se estivesse apresent
 
 **Sua resposta:**
 
-```md
-Preencha aqui.
-```
+A arquitetura desenhada resolve o caos do conhecimento corporativo oculto sem a necessidade de manter e provisionar servidores (100% serverless). Ao desacoplar a ingestão brutal de dados do processamento de metadados, entregamos previsibilidade de falhas e modularidade ao sistema. Com o Amazon OpenSearch integrado nativamente à IA gerativa do Bedrock, substituímos a ineficiência das buscas manuais por pastas baseadas em palavras-chave por um modelo que "entende" os processos de negócios de maneira semântica. Trata-se de uma solução resiliente, segura por design, altamente escalável e cuja rastreabilidade garantida na resposta atende aos padrões de governança exigidos por cenários executivos e operacionais.
