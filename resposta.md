@@ -367,7 +367,7 @@ Descreva o caminho dos dados desde a pasta `raw/` até a Wiki Inteligente.
 Crie um diagrama simples usando texto.
 
 **Sua resposta:**
-
+```
 Upload(S3 Raw WORM) 
   ↳ EventBridge Trigger
     ↳ Step Functions (Orquestrador)
@@ -382,6 +382,7 @@ Upload(S3 Raw WORM)
                       ⇡
 Usuário ➔ UI ➔ API Gateway ➔ Lambda Backend ➔ Bedrock (Claude 3.5)
 (Autenticação via Amazon Cognito / Auditoria via AWS CloudTrail)
+```
 
 ---
 
